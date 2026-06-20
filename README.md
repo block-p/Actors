@@ -1,5 +1,82 @@
 # Learn Actors — Complete Guide
 
+---
+
+## What is the Actor Model?
+
+The normal way to write concurrent code is **shared memory + locks**.
+Multiple goroutines share the same data, and you protect it with mutexes.
+This works but it's painful — deadlocks, race conditions, hard to reason about.
+
+The actor model throws that away entirely and says:
+
+> **Don't share memory. Instead, give every piece of state its own private owner, and let them communicate only by sending messages.**
+
+An **actor** is the owner. It has three things:
+
+```
+┌────────────────────────────────┐
+│            ACTOR               │
+│                                │
+│  📬  Mailbox  (message queue)  │  ← the only way in
+│  🧠  Behavior (your logic)     │  ← processes one message at a time
+│  📦  Private State             │  ← nobody else can touch this
+└────────────────────────────────┘
+```
+
+When an actor receives a message it can do exactly **three things**:
+
+1. **Change its own state** — update a price, record a fill, flip a flag
+2. **Send messages to other actors** — tell the executor to place an order
+3. **Spawn new actors** — create a child to handle a new connection
+
+That's the entire model. No locks. No shared memory. Just messages.
+
+### Why this matters for a trade engine
+
+Without actors:
+```
+Exchange connectors, order book, strategy, risk — all sharing state.
+One bug, one race condition → corrupted position data → wrong orders.
+```
+
+With actors:
+```
+BinanceActor    owns its own connection state
+OrderBookActor  owns its own price data
+StrategyActor   owns its own signals and positions
+RiskActor       owns its own exposure limits
+
+None of them can touch each other's data.
+They only talk by sending messages.
+If BinanceActor crashes → only BinanceActor restarts.
+Everything else keeps running.
+```
+
+### In Go, an actor is just a goroutine + a channel
+
+```go
+mailbox := make(chan Message, 100)   // the mailbox
+
+go func() {
+    price := 0.0  // private state — ONLY this goroutine touches it
+
+    for msg := range mailbox {        // one message at a time
+        switch m := msg.(type) {
+        case PriceUpdate:
+            price = m.Price           // update own state
+        case GetPrice:
+            m.Reply <- price          // reply to sender
+        }
+    }
+}()
+```
+
+The channel IS the mailbox. The goroutine IS the actor. The local variable IS the private state.
+No mutex needed — only one goroutine ever reads or writes `price`.
+
+---
+
 Read the docs in order. Then run the Go examples. Each example is a standalone program.
 
 ---
